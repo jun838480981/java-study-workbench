@@ -592,24 +592,24 @@ export const MILESTONES: { d: number; icon: string; label: string }[] = [
   { d: 40, icon: "👑", label: "毕业：源码读通，出师！" },
 ];
 
-export const BADGES: { id: string; icon: string; name: string; desc: string; condition: (s: Stats) => boolean }[] = [
-  { id: "first_day", icon: "🌱", name: "初次启程", desc: "完成第 1 天任务", condition: (s) => s.doneTasks.includes(1) },
-  { id: "streak_3", icon: "🔥", name: "三日之约", desc: "连续打卡 3 天", condition: (s) => s.currentStreak >= 3 },
-  { id: "streak_7", icon: "☄️", name: "七日炼心", desc: "累计连续打卡 7 天", condition: (s) => s.maxStreak >= 7 },
-  { id: "perfect_1", icon: "💯", name: "完美通关", desc: "一次测验全对", condition: (s) => s.perfectQuizzes >= 1 },
-  { id: "perfect_5", icon: "✨", name: "完美主义者", desc: "5 次测验全对", condition: (s) => s.perfectQuizzes >= 5 },
-  { id: "boss_1", icon: "⚔️", name: "初斩强敌", desc: "击败第一个 Boss", condition: (s) => s.bossCleared.length >= 1 },
-  { id: "boss_4", icon: "🐉", name: "屠龙勇士", desc: "击败 4 个 Boss", condition: (s) => s.bossCleared.length >= 4 },
-  { id: "quiz_30", icon: "🎯", name: "百步穿杨", desc: "答对 30 道题", condition: (s) => s.quizCorrect >= 30 },
-  { id: "quiz_60", icon: "🏹", name: "题海冲浪", desc: "答对 60 道题", condition: (s) => s.quizCorrect >= 60 },
-  { id: "village", icon: "🌱", name: "新手村出村", desc: "通关阶段一", condition: (s) => Array.from({length:7},(_,i)=>i+1).every(d=>s.doneTasks.includes(d)) },
-  { id: "oop", icon: "☕", name: "面向对象大师", desc: "通关阶段二", condition: (s) => Array.from({length:6},(_,i)=>i+8).every(d=>s.doneTasks.includes(d)) },
-  { id: "lang", icon: "📦", name: "语言修行完成", desc: "通关阶段三", condition: (s) => Array.from({length:7},(_,i)=>i+14).every(d=>s.doneTasks.includes(d)) },
-  { id: "spring", icon: "🌿", name: "Spring 侠客", desc: "通关阶段四", condition: (s) => Array.from({length:7},(_,i)=>i+21).every(d=>s.doneTasks.includes(d)) },
-  { id: "fullstack", icon: "🏰", name: "全栈建造师", desc: "通关阶段五", condition: (s) => Array.from({length:6},(_,i)=>i+28).every(d=>s.doneTasks.includes(d)) },
-  { id: "graduate", icon: "👑", name: "出师！Java 勇者", desc: "完成全部 40 天修行", condition: (s) => s.doneTasks.length >= 40 },
-  { id: "note_10", icon: "📝", name: "坑王之王", desc: "记下 10 条踩坑笔记", condition: (s) => s.notes >= 10 },
-  { id: "lv5", icon: "🗡️", name: "经验老到", desc: "等级达到 5 级", condition: (s) => s.level >= 5 },
+export const BADGES: { id: string; icon: string; name: string; desc: string; condition: (s: Stats) => boolean; progress?: (s: Stats) => [number, number] }[] = [
+  { id: "first_day", icon: "🌱", name: "初次启程", desc: "完成第 1 天任务", condition: (s) => s.doneTasks.includes(1), progress: (s) => [Math.min(s.doneTasks.length, 1), 1] },
+  { id: "streak_3", icon: "🔥", name: "三日之约", desc: "连续打卡 3 天", condition: (s) => s.currentStreak >= 3, progress: (s) => [Math.min(s.currentStreak, 3), 3] },
+  { id: "streak_7", icon: "☄️", name: "七日炼心", desc: "累计连续打卡 7 天", condition: (s) => s.maxStreak >= 7, progress: (s) => [Math.min(s.maxStreak, 7), 7] },
+  { id: "perfect_1", icon: "💯", name: "完美通关", desc: "一次测验全对", condition: (s) => s.perfectQuizzes >= 1, progress: (s) => [Math.min(s.perfectQuizzes, 1), 1] },
+  { id: "perfect_5", icon: "✨", name: "完美主义者", desc: "5 次测验全对", condition: (s) => s.perfectQuizzes >= 5, progress: (s) => [Math.min(s.perfectQuizzes, 5), 5] },
+  { id: "boss_1", icon: "⚔️", name: "初斩强敌", desc: "击败第一个 Boss", condition: (s) => s.bossCleared.length >= 1, progress: (s) => [Math.min(s.bossCleared.length, 1), 1] },
+  { id: "boss_4", icon: "🐉", name: "屠龙勇士", desc: "击败 4 个 Boss", condition: (s) => s.bossCleared.length >= 4, progress: (s) => [Math.min(s.bossCleared.length, 4), 4] },
+  { id: "quiz_30", icon: "🎯", name: "百步穿杨", desc: "答对 30 道题", condition: (s) => s.quizCorrect >= 30, progress: (s) => [Math.min(s.quizCorrect, 30), 30] },
+  { id: "quiz_60", icon: "🏹", name: "题海冲浪", desc: "答对 60 道题", condition: (s) => s.quizCorrect >= 60, progress: (s) => [Math.min(s.quizCorrect, 60), 60] },
+  { id: "village", icon: "🌱", name: "新手村出村", desc: "通关阶段一", condition: (s) => Array.from({length:7},(_,i)=>i+1).every(d=>s.doneTasks.includes(d)), progress: (s) => [Array.from({length:7},(_,i)=>i+1).filter(d=>s.doneTasks.includes(d)).length, 7] },
+  { id: "oop", icon: "☕", name: "面向对象大师", desc: "通关阶段二", condition: (s) => Array.from({length:6},(_,i)=>i+8).every(d=>s.doneTasks.includes(d)), progress: (s) => [Array.from({length:6},(_,i)=>i+8).filter(d=>s.doneTasks.includes(d)).length, 6] },
+  { id: "lang", icon: "📦", name: "语言修行完成", desc: "通关阶段三", condition: (s) => Array.from({length:7},(_,i)=>i+14).every(d=>s.doneTasks.includes(d)), progress: (s) => [Array.from({length:7},(_,i)=>i+14).filter(d=>s.doneTasks.includes(d)).length, 7] },
+  { id: "spring", icon: "🌿", name: "Spring 侠客", desc: "通关阶段四", condition: (s) => Array.from({length:7},(_,i)=>i+21).every(d=>s.doneTasks.includes(d)), progress: (s) => [Array.from({length:7},(_,i)=>i+21).filter(d=>s.doneTasks.includes(d)).length, 7] },
+  { id: "fullstack", icon: "🏰", name: "全栈建造师", desc: "通关阶段五", condition: (s) => Array.from({length:6},(_,i)=>i+28).every(d=>s.doneTasks.includes(d)), progress: (s) => [Array.from({length:6},(_,i)=>i+28).filter(d=>s.doneTasks.includes(d)).length, 6] },
+  { id: "graduate", icon: "👑", name: "出师！Java 勇者", desc: "完成全部 40 天修行", condition: (s) => s.doneTasks.length >= 40, progress: (s) => [Math.min(s.doneTasks.length, 40), 40] },
+  { id: "note_10", icon: "📝", name: "坑王之王", desc: "记下 10 条踩坑笔记", condition: (s) => s.notes >= 10, progress: (s) => [Math.min(s.notes, 10), 10] },
+  { id: "lv5", icon: "🗡️", name: "经验老到", desc: "等级达到 5 级", condition: (s) => s.level >= 5, progress: (s) => [Math.min(s.level, 5), 5] },
 ];
 
 // ============ 测验题库：QUIZZES[day] = Quiz[]（按重构课程出题）============
