@@ -98,7 +98,7 @@ interface Note {
 
 interface AppState {
   trackId?: string; // 当前职业（多语言）
-  trackState?: Record<string, { currentDay: number; doneTasks: number[]; wrongBook: [number, number][] }>; // 每职业独立进度
+  trackState?: Record<string, { currentDay: number; doneTasks: number[]; wrongBook: [number, number][]; xp: number }>; // 每职业独立进度+经验
   currentDay: number;
   doneTasks: number[];
   notes: Note[];
@@ -134,6 +134,17 @@ function load(): AppState {
 const fmtDate = () => new Date().toLocaleDateString("zh-CN");
 const todayStr = () => new Date().toDateString();
 
+// 非Java职业：按任务 tag 自动划分修行阶段
+function autoPhases(track: Track): { name: string; from: number; to: number; items: string[] }[] {
+  const phases: { name: string; from: number; to: number; items: string[] }[] = [];
+  for (const t of track.tasks) {
+    const last = phases[phases.length - 1];
+    if (last && last.name === t.tag) { last.to = t.d; last.items.push(t.t); }
+    else phases.push({ name: t.tag, from: t.d, to: t.d, items: [t.t] });
+  }
+  return phases;
+}
+
 // ---- 多职业（track）支持 ----
 // 当前职业对象；老存档无 trackId 时视为 java，自动迁移
 function useTrack(state: AppState): Track {
@@ -143,12 +154,13 @@ function useTrack(state: AppState): Track {
 // 读取某职业的独立进度（无则从全局旧字段迁移/默认值）
 function trackProgress(state: AppState, id: string) {
   const ts = state.trackState?.[id];
-  if (ts) return ts;
+  if (ts) return { ...ts, xp: ts.xp ?? 0 };
   // 迁移：旧全局字段就是 java 的进度
   return {
     currentDay: state.currentDay ?? 1,
     doneTasks: state.doneTasks ?? [],
     wrongBook: state.wrongBook ?? [],
+    xp: id === "java" ? (state.xp ?? 0) : 0,
   };
 }
 
@@ -254,7 +266,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(state));
-    const { cur } = levelOf(state.xp);
+    const { cur } = levelOf(tp.xp);
     if (cur.lv > prevLevelRef.lv) {
       prevLevelRef.lv = cur.lv;
       setLevelUp(`${cur.title}`);
@@ -293,17 +305,16 @@ export default function App() {
     const id = next.trackId || DEFAULT_TRACK;
     return {
       ...next,
-      currentDay: next.currentDay, // 全局字段保留作迁移源
       trackState: {
         ...(next.trackState || {}),
-        [id]: { currentDay: next.currentDay, doneTasks: next.doneTasks, wrongBook: next.wrongBook },
+        [id]: { currentDay: next.currentDay, doneTasks: next.doneTasks, wrongBook: next.wrongBook, xp: next.xp },
       },
     };
   });
 
-  const { cur: level, next: nextLevel } = levelOf(state.xp);
+  const { cur: level, next: nextLevel } = levelOf(tp.xp);
   const levelPct = nextLevel
-    ? Math.min(100, Math.round(((state.xp - level.need) / (nextLevel.need - level.need)) * 100))
+    ? Math.min(100, Math.round(((tp.xp - level.need) / (nextLevel.need - level.need)) * 100))
     : 100;
 
   const currentStreak = (() => {
@@ -514,7 +525,7 @@ export default function App() {
 
   // ---- 预计毕业日 ----
   const graduation = (() => {
-    const remaining = 40 - tp.doneTasks.length;
+    const remaining = track.tasks.length - tp.doneTasks.length;
     if (remaining <= 0) return "已毕业 🎓";
     const pace = dayCount / Math.max(1, tp.doneTasks.length); // 每关天数
     const daysLeft = Math.round(remaining * pace);
@@ -546,7 +557,7 @@ export default function App() {
                 onClick={() => {
                   if (active) return;
                   const p = trackProgress(state, t.id);
-                  update((s) => ({ ...s, trackId: t.id, currentDay: p.currentDay, doneTasks: p.doneTasks, wrongBook: p.wrongBook }));
+                  update((s) => ({ ...s, trackId: t.id, currentDay: p.currentDay, doneTasks: p.doneTasks, wrongBook: p.wrongBook, xp: p.xp }));
                   setLearnedToday(localStorage.getItem(KEY + ".learned." + new Date().toDateString() + ".d" + t.id + "." + p.currentDay) === "1");
                   pushToast({ icon: t.icon, title: `切换到 ${t.name}`, desc: `进度 ${done}/${total} · ${t.tagline}` });
                 }}>
@@ -561,7 +572,7 @@ export default function App() {
         <div className="level-bar-wrap">
           <div className="level-info">
             <span className="level-title">Lv.{level.lv} {level.title}</span>
-            <span className="xp-num">{state.xp} XP{nextLevel ? ` · 距下一级还差 ${nextLevel.need - state.xp}` : " · 已满级！"}</span>
+            <span className="xp-num">{tp.xp} XP{nextLevel ? ` · 距下一级还差 ${nextLevel.need - tp.xp}` : " · 已满级！"}</span>
           </div>
           <div className="xp-bar"><span style={{ width: levelPct + "%" }} /></div>
         </div>
@@ -686,8 +697,8 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {/* 站内教程全文 */}
-              {LXF_CONTENT[tp.currentDay] && (
+              {/* 站内教程全文（仅 Java 勇者：其他职业用配套资料链接学习） */}
+              {track.id === "java" && LXF_CONTENT[tp.currentDay] && (
                 <LxfReader day={tp.currentDay} />
               )}
               <div className="btn-row">
@@ -825,7 +836,7 @@ export default function App() {
         <div className="col">
           <div className="card">
             <h2>🗺️ 修行地图</h2>
-            {PHASES.map((p, i) => {
+            {(track.id === "java" ? PHASES : autoPhases(track)).map((p, i) => {
               const total = p.to - p.from + 1;
               const done = track.tasks.filter((t) => t.d >= p.from && t.d <= p.to && tp.doneTasks.includes(t.d)).length;
               const pct = Math.round((done / total) * 100);
