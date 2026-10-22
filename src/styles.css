@@ -235,8 +235,8 @@ details.phase summary:hover { background: var(--panel2); }
 .res-type.t-tool { background: rgba(201,151,79,.18); color: var(--coffee); }
 .res-type.t-repo { background: rgba(200,120,200,.15); color: #c88ad4; }
 
-/* 资料库 */
-.lib-list { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; overscroll-behavior: contain; }
+/* 资料库：不限高、不内滚，自然撑开交给整页滚动（避免滚轮被吞） */
+.lib-list { display: flex; flex-direction: column; gap: 4px; }
 .lib-day { border: 1px solid var(--line); border-radius: 8px; overflow: visible; flex-shrink: 0; }
 .lib-day[open] { overflow: visible; }
 .lib-day summary { cursor: pointer; padding: 8px 10px; font-size: 12.5px; font-weight: 600; list-style: none; display: flex; gap: 6px; align-items: baseline; }
