@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
-import { TASKS, PHASES, MILESTONES, QUIZZES, BADGES, LEVELS } from "./data";
-import { EXERCISES } from "./exercises";
-import { RESOURCES, RESOURCE_TYPE_LABEL } from "./resources";
+import { TRACKS, DEFAULT_TRACK } from "./tracks/tracks";
+import { PHASES, MILESTONES, BADGES, LEVELS } from "./data";
+import { RESOURCE_TYPE_LABEL } from "./resources";
+import type { Track, TrackResource } from "./track";
 import { LXF_CONTENT } from "./lxfContent";
 import LxfReader from "./LxfReader";
 import type { Quiz } from "./data";
 import CodeEditor from "./CodeEditor";
 
-// 历史关卡回看弹窗
-export function HistoryModal({ day, onClose }: { day: number; onClose: () => void }) {
-  const task = TASKS.find((t) => t.d === day);
-  const quiz = QUIZZES[day] ?? [];
-  const ex = EXERCISES[day];
-  const savedCode = localStorage.getItem("javaStudyWorkbench.v3.ex." + day) ?? ex?.starter ?? "";
+// 历史关卡回看弹窗（按职业取内容）
+export function HistoryModal({ day, track, onClose }: { day: number; track: Track; onClose: () => void }) {
+  const task = track.tasks.find((t) => t.d === day);
+  const quiz = track.quizzes[day] ?? [];
+  const ex = track.exercises[day];
+  const savedCode = localStorage.getItem("javaStudyWorkbench.v3.ex." + track.id + "." + day) ?? ex?.starter ?? "";
   const [tab, setTab] = useState<"lesson" | "exercise" | "quiz" | "res">("lesson");
   if (!task) return null;
 
@@ -27,7 +28,7 @@ export function HistoryModal({ day, onClose }: { day: number; onClose: () => voi
           <button className={tab === "lesson" ? "active" : ""} onClick={() => setTab("lesson")}>📖 课程</button>
           {ex && <button className={tab === "exercise" ? "active" : ""} onClick={() => setTab("exercise")}>⌨️ 练习</button>}
           <button className={tab === "quiz" ? "active" : ""} onClick={() => setTab("quiz")}>🎯 测验 {quiz.length} 题</button>
-          {RESOURCES[day] && <button className={tab === "res" ? "active" : ""} onClick={() => setTab("res")}>🔗 资料</button>}
+          {track.resources[day] && <button className={tab === "res" ? "active" : ""} onClick={() => setTab("res")}>🔗 资料</button>}
         </div>
         <div className="history-body">
           {tab === "lesson" && task.lesson && (
@@ -56,9 +57,9 @@ export function HistoryModal({ day, onClose }: { day: number; onClose: () => voi
               <pre className="lesson-code expected"><code>{ex.expected}</code></pre>
             </>
           )}
-          {tab === "res" && RESOURCES[day] && (
+          {tab === "res" && track.resources[day] && (
             <div className="res-links">
-              {RESOURCES[day].map((r) => (
+              {track.resources[day].map((r) => (
                 <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer" className="res-link">
                   <span className={"res-type t-" + r.type}>{RESOURCE_TYPE_LABEL[r.type]}</span>
                   {r.name} ↗
@@ -96,6 +97,8 @@ interface Note {
 }
 
 interface AppState {
+  trackId?: string; // 当前职业（多语言）
+  trackState?: Record<string, { currentDay: number; doneTasks: number[]; wrongBook: [number, number][] }>; // 每职业独立进度
   currentDay: number;
   doneTasks: number[];
   notes: Note[];
@@ -129,8 +132,25 @@ function load(): AppState {
 }
 
 const fmtDate = () => new Date().toLocaleDateString("zh-CN");
-const taskOf = (d: number) => TASKS.find((t) => t.d === d);
 const todayStr = () => new Date().toDateString();
+
+// ---- 多职业（track）支持 ----
+// 当前职业对象；老存档无 trackId 时视为 java，自动迁移
+function useTrack(state: AppState): Track {
+  const id = state.trackId || DEFAULT_TRACK;
+  return TRACKS.find((t) => t.id === id) || TRACKS[0];
+}
+// 读取某职业的独立进度（无则从全局旧字段迁移/默认值）
+function trackProgress(state: AppState, id: string) {
+  const ts = state.trackState?.[id];
+  if (ts) return ts;
+  // 迁移：旧全局字段就是 java 的进度
+  return {
+    currentDay: state.currentDay ?? 1,
+    doneTasks: state.doneTasks ?? [],
+    wrongBook: state.wrongBook ?? [],
+  };
+}
 
 function levelOf(xp: number) {
   let cur = LEVELS[0], next = null as typeof LEVELS[number] | null;
@@ -179,6 +199,8 @@ function RetakeModal({ quiz, day, qi, onClose, onPass }: { quiz: Quiz; day: numb
 
 export default function App() {
   const [state, setState] = useState<AppState>(load);
+  const track = useTrack(state);
+  const tp = trackProgress(state, track.id); // 当前职业独立进度
   const [showTomorrow, setShowTomorrow] = useState(false);
   const [noteInput, setNoteInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -192,6 +214,7 @@ export default function App() {
   const [quizCorrectInRun, setQuizCorrectInRun] = useState(0);
   const [quizResult, setQuizResult] = useState<null | { correct: number; total: number; xpGained: number }>(null);
   const [levelUp, setLevelUp] = useState<string | null>(null);
+  const [combo, setCombo] = useState(0); // 🔥 测验连击
   const [toasts, setToasts] = useState<Toast[]>([]);
   // 历史回顾
   const [historyDay, setHistoryDay] = useState<number | null>(null);
@@ -199,26 +222,33 @@ export default function App() {
   const [resSearch, setResSearch] = useState("");
   // 学习阶段：当前关卡是否已学习
   const [learnedToday, setLearnedToday] = useState(() => {
-    const saved = localStorage.getItem(KEY + ".learned." + new Date().toDateString() + ".d" + load().currentDay);
+    const saved = localStorage.getItem(KEY + ".learned." + new Date().toDateString() + ".d" + (load().trackId || DEFAULT_TRACK) + "." + load().currentDay);
     return saved === "1";
   });
   // 代码练习
   const [code, setCode] = useState("");
   const [showAnswer, setShowAnswer] = useState(false);
   const [exDone, setExDone] = useState<Record<number, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem(KEY + ".exDone") || "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(KEY + ".exDone." + (load().trackId || DEFAULT_TRACK)) || "{}"); } catch { return {}; }
   });
   // 新功能状态
+  const [retake, setRetake] = useState<{ day: number; qi: number } | null>(null);
   const [noteSearch, setNoteSearch] = useState("");
-  const [retake, setRetake] = useState<null | { day: number; qi: number }>(null); // 错题重练
+  const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem(KEY + ".theme") as "dark" | "light") || "dark");
+
+  // 主题切换：给 <html> 打 class，样式全走 CSS 变量
+  useEffect(() => {
+    document.documentElement.classList.toggle("light-theme", theme === "light");
+    localStorage.setItem(KEY + ".theme", theme);
+  }, [theme]);
   const [pomodoroMin, setPomodoroMin] = useState(25);
 
   // 切换天时加载该天练习代码
   useEffect(() => {
-    const saved = localStorage.getItem("javaStudyWorkbench.v3.ex." + state.currentDay);
-    setCode(saved ?? EXERCISES[state.currentDay]?.starter ?? "");
+    const saved = localStorage.getItem("javaStudyWorkbench.v3.ex." + track.id + "." + tp.currentDay);
+    setCode(saved ?? track.exercises[tp.currentDay]?.starter ?? "");
     setShowAnswer(false);
-  }, [state.currentDay]);
+  }, [tp.currentDay]);
 
   const prevLevelRef = useState({ lv: 1 })[0];
 
@@ -257,7 +287,19 @@ export default function App() {
     setTimeout(() => setToasts((ts) => ts.filter((x) => x !== t)), 3500);
   };
 
-  const update = (fn: (s: AppState) => AppState) => setState((s) => fn({ ...s }));
+  const update = (fn: (s: AppState) => AppState) => setState((s) => {
+    const next = fn({ ...s });
+    // 多职业：当前职业进度同步进 trackState（trackId 缺省 java）
+    const id = next.trackId || DEFAULT_TRACK;
+    return {
+      ...next,
+      currentDay: next.currentDay, // 全局字段保留作迁移源
+      trackState: {
+        ...(next.trackState || {}),
+        [id]: { currentDay: next.currentDay, doneTasks: next.doneTasks, wrongBook: next.wrongBook },
+      },
+    };
+  });
 
   const { cur: level, next: nextLevel } = levelOf(state.xp);
   const levelPct = nextLevel
@@ -266,23 +308,24 @@ export default function App() {
 
   const currentStreak = (() => {
     // 连续打卡：从今天往前数，只要有完成记录的日子连续
-    const days = new Set(state.doneTasks.map((d) => {
+    const days = new Set(tp.doneTasks.map((d) => {
       // 用完成时记录的 lastDoneDate 链近似：直接按任务日连续计算
       return d;
     }));
     let s = 0;
-    for (let d = state.currentDay - 1; d >= 1; d--) { if (days.has(d)) s++; else break; }
+    for (let d = tp.currentDay - 1; d >= 1; d--) { if (days.has(d)) s++; else break; }
     return s;
   })();
 
-  const earnedBadges = BADGES.filter((b) => b.condition({
-    doneTasks: state.doneTasks, quizCorrect: state.quizCorrect, quizWrong: state.quizWrong,
+  const badgeStats = {
+    doneTasks: tp.doneTasks, quizCorrect: state.quizCorrect, quizWrong: state.quizWrong,
     perfectQuizzes: state.perfectQuizzes, bossCleared: state.bossCleared,
     currentStreak, maxStreak: state.maxStreak, level: level.lv, notes: state.notes.length,
-  }));
+  };
+  const earnedBadges = BADGES.filter((b) => b.condition(badgeStats));
 
   const statsSnapshot = () => ({
-    doneTasks: state.doneTasks, quizCorrect: state.quizCorrect, quizWrong: state.quizWrong,
+    doneTasks: tp.doneTasks, quizCorrect: state.quizCorrect, quizWrong: state.quizWrong,
     perfectQuizzes: state.perfectQuizzes, bossCleared: state.bossCleared,
     currentStreak, maxStreak: state.maxStreak, level: level.lv, notes: state.notes.length,
   });
@@ -290,17 +333,17 @@ export default function App() {
   // ---- 测验流程 ----
   // ---- 学习阶段 ----
   const markLearned = () => {
-    localStorage.setItem(KEY + ".learned." + new Date().toDateString() + ".d" + state.currentDay, "1");
+    localStorage.setItem(KEY + ".learned." + new Date().toDateString() + ".d" + track.id + "." + tp.currentDay, "1");
     setLearnedToday(true);
     update((s) => ({ ...s, xp: s.xp + 5 }));
     pushToast({ icon: "📖", title: "学习完成！", desc: "获得 +5 学识 XP，练习和测验已解锁" });
   };
 
   const markExDone = () => {
-    const next = { ...exDone, [state.currentDay]: true };
+    const next = { ...exDone, [tp.currentDay]: true };
     setExDone(next);
-    localStorage.setItem(KEY + ".exDone", JSON.stringify(next));
-    if (!exDone[state.currentDay]) {
+    localStorage.setItem(KEY + ".exDone." + track.id, JSON.stringify(next));
+    if (!exDone[tp.currentDay]) {
       update((s) => ({ ...s, xp: s.xp + 10 }));
       pushToast({ icon: "⌨️", title: "练习完成！", desc: "获得 +10 实战 XP" });
       if (todayChallenge.type === "ex" && !todayChallenge.done) completeChallenge("ex");
@@ -310,15 +353,26 @@ export default function App() {
   const startQuiz = () => {
     if (!learnedToday) return;
     setQuizCorrectInRun(0);
-    setQuizDay(state.currentDay); setQuizIdx(0); setPicked(null); setQuizResult(null);
+    setQuizDay(tp.currentDay); setCombo(0); setQuizIdx(0); setPicked(null); setQuizResult(null);
   };
 
   const submitAnswer = (opt: number) => {
     if (picked !== null) return;
     setPicked(opt);
-    const quizzes = QUIZZES[quizDay!];
+    const quizzes = track.quizzes[quizDay!];
     const ok = opt === quizzes[quizIdx].answer;
     if (ok) setQuizCorrectInRun((c) => c + 1);
+    // 🔥 连击
+    if (ok) {
+      const nc = combo + 1;
+      setCombo(nc);
+      if (nc === 3) pushToast({ icon: "🔥", title: "三连击！", desc: "连对 3 题，手感来了" });
+      else if (nc === 5) pushToast({ icon: "⚡", title: "五连超凡！", desc: "连对 5 题，勇者威武" });
+      else if (nc >= 8) pushToast({ icon: "🌟", title: `${nc} 连击 · 传说诞生`, desc: "这波题海被你冲烂了" });
+    } else if (combo > 0) {
+      setCombo(0);
+      pushToast({ icon: "💨", title: `连击中断（${combo}）`, desc: "稳住，下一题连回来" });
+    }
     update((s) => ({
       ...s,
       quizCorrect: s.quizCorrect + (ok ? 1 : 0),
@@ -328,15 +382,15 @@ export default function App() {
   };
 
   const nextQuestion = () => {
-    const quizzes = QUIZZES[quizDay!];
+    const quizzes = track.quizzes[quizDay!];
     if (quizIdx + 1 < quizzes.length) { setQuizIdx(quizIdx + 1); setPicked(null); return; }
     // 测验结束
     const correct = quizCorrectInRun; // 本次测验答对数
     const total = quizzes.length;
-    const dayXp = taskOf(quizDay!)?.xp ?? 20;
+    const dayXp = track.tasks.find(t => t.d === quizDay)?.xp ?? 20;
     const bonus = correct === total ? Math.round(dayXp * 0.5) : 0;
     const gained = Math.round(dayXp * (0.6 + 0.4 * (correct / total))) + bonus;
-    const wasBoss = (taskOf(quizDay!)?.tag ?? "").includes("Boss") || quizDay === 40;
+    const wasBoss = (track.tasks.find(t => t.d === quizDay)?.tag ?? "").includes("Boss") || quizDay === track.tasks.length;
 
     update((s) => ({
       ...s,
@@ -398,11 +452,11 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const today = taskOf(state.currentDay);
-  const tomorrow = taskOf(state.currentDay + 1);
-  const todayDone = state.doneTasks.includes(state.currentDay);
+  const today = track.tasks.find(t => t.d === tp.currentDay);
+  const tomorrow = track.tasks.find(t => t.d === tp.currentDay + 1);
+  const todayDone = tp.doneTasks.includes(tp.currentDay);
   const isBossDay = today ? (today.tag.includes("Boss") || today.tag.includes("终章")) : false;
-  const quizzes = quizDay ? QUIZZES[quizDay] : null;
+  const quizzes = quizDay ? track.quizzes[quizDay] : null;
   const dayCount = Math.max(1, Math.floor((Date.now() - new Date(state.startDate).getTime()) / 86400000) + 1);
   const timerStr = `${String(Math.floor(timerLeft / 60)).padStart(2, "0")}:${String(timerLeft % 60).padStart(2, "0")}`;
 
@@ -460,9 +514,9 @@ export default function App() {
 
   // ---- 预计毕业日 ----
   const graduation = (() => {
-    const remaining = 40 - state.doneTasks.length;
+    const remaining = 40 - tp.doneTasks.length;
     if (remaining <= 0) return "已毕业 🎓";
-    const pace = dayCount / Math.max(1, state.doneTasks.length); // 每关天数
+    const pace = dayCount / Math.max(1, tp.doneTasks.length); // 每关天数
     const daysLeft = Math.round(remaining * pace);
     const eta = new Date(Date.now() + daysLeft * 86400000);
     return `按当前节奏 · 预计 ${eta.toLocaleDateString("zh-CN", { month: "long", day: "numeric" })} 毕业（还剩 ${daysLeft} 天）`;
@@ -472,7 +526,38 @@ export default function App() {
     <div className="wrap">
       {/* 顶部：称号 + 经验条 */}
       <header>
-        <h1><span className="bean">☕</span> 工作台 <span className="sub-tag">前端转 Java · 40 天通关之旅</span></h1>
+        <div className="head-row">
+          <h1><span className="bean">{track.icon}</span> 工作台 <span className="sub-tag">多语言勇者修行 · {track.name}进行中</span></h1>
+          <button className="theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title="切换深浅色主题">
+            {theme === "dark" ? "🌙 深色" : "☀️ 浅色"}
+          </button>
+        </div>
+
+        {/* 职业大厅：多语言切换条 */}
+        <div className="hall">
+          {TRACKS.map((t) => {
+            const prog = trackProgress(state, t.id);
+            const total = t.tasks.length;
+            const done = prog.doneTasks.length;
+            const active = t.id === track.id;
+            return (
+              <button key={t.id}
+                className={"hall-card" + (active ? " active" : "")}
+                onClick={() => {
+                  if (active) return;
+                  const p = trackProgress(state, t.id);
+                  update((s) => ({ ...s, trackId: t.id, currentDay: p.currentDay, doneTasks: p.doneTasks, wrongBook: p.wrongBook }));
+                  setLearnedToday(localStorage.getItem(KEY + ".learned." + new Date().toDateString() + ".d" + t.id + "." + p.currentDay) === "1");
+                  pushToast({ icon: t.icon, title: `切换到 ${t.name}`, desc: `进度 ${done}/${total} · ${t.tagline}` });
+                }}>
+                <span className="hall-icon">{t.icon}</span>
+                <span className="hall-name">{t.name}</span>
+                <span className="hall-prog">{done}/{total}</span>
+                <span className="hall-bar"><span style={{ width: (total ? Math.round(done / total * 100) : 0) + "%" }} /></span>
+              </button>
+            );
+          })}
+        </div>
         <div className="level-bar-wrap">
           <div className="level-info">
             <span className="level-title">Lv.{level.lv} {level.title}</span>
@@ -525,7 +610,7 @@ export default function App() {
       <div className="grid">
         <div className="col">
           <div className="card">
-            <h2>{isBossDay ? "👹 今日 BOSS 战" : "📅 今日关卡"} <span className="small">Day {state.currentDay} · {fmtDate()}</span></h2>
+            <h2>{isBossDay ? "👹 今日 BOSS 战" : "📅 今日关卡"} <span className="small">Day {tp.currentDay} · {fmtDate()}</span></h2>
             {today ? (
               <div className={"task" + (todayDone ? " done" : "")}>
                 <div className={isBossDay ? "boss-avatar" : "task-avatar"}>{isBossDay ? "👹" : "🗡️"}</div>
@@ -552,7 +637,7 @@ export default function App() {
                 </button>
               )}
               {todayDone && (
-                <button className="primary" onClick={goNextDay}>➡️ 进入 Day {state.currentDay + 1}</button>
+                <button className="primary" onClick={goNextDay}>➡️ 进入 Day {tp.currentDay + 1}</button>
               )}
               <button onClick={() => setShowTomorrow((v) => !v)}>👀 预习明天</button>
             </div>
@@ -588,11 +673,11 @@ export default function App() {
                 <span className="la-icon">🧠</span>
                 <div><b>前端类比</b><p>{today.lesson.analogy}</p></div>
               </div>
-              {RESOURCES[state.currentDay] && (
+              {track.resources[tp.currentDay] && (
                 <div className="lesson-res">
                   <div className="lesson-code-label">🔗 配套资料（点击跳转详细学习）</div>
                   <div className="res-links">
-                    {RESOURCES[state.currentDay].map((r) => (
+                    {track.resources[tp.currentDay].map((r) => (
                       <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer" className="res-link">
                         <span className={"res-type t-" + r.type}>{RESOURCE_TYPE_LABEL[r.type]}</span>
                         {r.name} ↗
@@ -602,8 +687,8 @@ export default function App() {
                 </div>
               )}
               {/* 站内教程全文 */}
-              {LXF_CONTENT[state.currentDay] && (
-                <LxfReader day={state.currentDay} />
+              {LXF_CONTENT[tp.currentDay] && (
+                <LxfReader day={tp.currentDay} />
               )}
               <div className="btn-row">
                 {!learnedToday ? (
@@ -616,37 +701,35 @@ export default function App() {
           )}
 
           {/* 代码练习面板 */}
-          {today && !todayDone && learnedToday && EXERCISES[state.currentDay] && (
+          {today && !todayDone && learnedToday && track.exercises[tp.currentDay] && (
             <div className="card ex-card" id="ex-panel">
-              <h2>⌨️ 代码练习 <span className="small">{exDone[state.currentDay] ? "已完成 ✓" : "手敲完成 +10 XP"}</span></h2>
-              <div className="ex-prompt">{EXERCISES[state.currentDay].prompt}</div>
-              <CodeEditor day={state.currentDay} value={code} onChange={setCode} />
+              <h2>⌨️ 代码练习 <span className="small">{exDone[tp.currentDay] ? "已完成 ✓" : "手敲完成 +10 XP"}</span></h2>
+              <div className="ex-prompt">{track.exercises[tp.currentDay].prompt}</div>
+              <CodeEditor day={tp.currentDay} value={code} onChange={setCode} />
               <div className="btn-row">
                 <button
                   className="primary"
                   onClick={() => {
-                    localStorage.setItem("javaStudyWorkbench.v3.ex." + state.currentDay, code);
-                    const w = window.open(
-                      "https://www.onlinegdb.com/online_java_compiler",
-                      "_blank", "noopener");
-                    if (w) pushToast({ icon: "🚀", title: "已打开在线编译器", desc: "粘贴你的代码进去运行" });
+                    localStorage.setItem("javaStudyWorkbench.v3.ex." + track.id + "." + tp.currentDay, code);
+                    const w = window.open(track.runnerUrl, "_blank", "noopener");
+                    if (w) pushToast({ icon: "🚀", title: "已打开" + track.runner, desc: "粘贴你的代码进去运行" });
                   }}
                 >▶ 复制去在线运行（新窗口）</button>
                 <button onClick={() => { navigator.clipboard?.writeText(code); pushToast({ icon: "📋", title: "已复制代码", desc: "去编译器 Ctrl+V" }); }}>📋 复制代码</button>
                 <button onClick={() => setShowAnswer((v) => !v)}>{showAnswer ? "🙈 收起答案" : "💡 看参考答案"}</button>
-                {!exDone[state.currentDay] && (
+                {!exDone[tp.currentDay] && (
                   <button className="primary" onClick={markExDone}>✅ 我写完并验证过了（+10 XP）</button>
                 )}
               </div>
               {showAnswer && (
                 <div className="ex-answer">
                   <div className="lesson-code-label">参考答案（先自己写再看！)</div>
-                  <pre className="lesson-code"><code>{EXERCISES[state.currentDay].answer}</code></pre>
+                  <pre className="lesson-code"><code>{track.exercises[tp.currentDay].answer}</code></pre>
                   <div className="lesson-code-label">预期输出</div>
-                  <pre className="lesson-code expected"><code>{EXERCISES[state.currentDay].expected}</code></pre>
+                  <pre className="lesson-code expected"><code>{track.exercises[tp.currentDay].expected}</code></pre>
                 </div>
               )}
-              <div className="ex-tip">💡 站内编辑器负责"手感"：行号、Tab 缩进、自动保存。真机运行点上面的按钮跳 OnlineGDB，粘贴运行对照预期输出。</div>
+              <div className="ex-tip">💡 站内编辑器负责"手感"：行号、Tab 缩进、自动保存。真机运行点上面的按钮跳 {track.runner}，粘贴运行对照预期输出。</div>
             </div>
           )}
 
@@ -687,15 +770,23 @@ export default function App() {
               <h2 style={{ justifyContent: "center" }}>战果揭晓</h2>
               <div className="result-line">答对 <b className="coffee">{quizResult.correct}</b> / {quizResult.total} 题</div>
               <div className="result-line">获得 <b className="coffee">+{quizResult.xpGained} XP</b>{quizResult.correct === quizResult.total && "（含完美通关奖励 ⭐）"}</div>
-              <div className="result-line">关卡 Day {quizDay} 已通关 {taskOf(quizDay!)?.tag.includes("Boss") || quizDay === 40 ? "· 👹 BOSS 已被击败！" : ""}</div>
+              <div className="result-line">关卡 Day {quizDay} 已通关 {track.tasks.find(t => t.d === quizDay)?.tag.includes("Boss") || quizDay === track.tasks.length ? "· 👹 BOSS 已被击败！" : ""}</div>
               <div className="btn-row center">
-                <button className="primary" onClick={goNextDay}>➡️ 进入 Day {state.currentDay + 1}</button>
+                <button className="primary" onClick={goNextDay}>➡️ 进入 Day {tp.currentDay + 1}</button>
               </div>
             </div>
           )}
 
           <div className="card">
             <h2>📓 踩坑笔记 <span className="small">{state.notes.length} 条</span></h2>
+            {state.notes.length > 3 && (
+              <div className="note-input note-search-row">
+                <input
+                  value={noteSearch} onChange={(e) => setNoteSearch(e.target.value)}
+                  className="lib-search" placeholder="🔍 搜笔记…（输入关键词，如 equals、Stream）"
+                />
+              </div>
+            )}
             <div className="note-input">
               <input
                 value={noteInput} onChange={(e) => setNoteInput(e.target.value)}
@@ -707,7 +798,7 @@ export default function App() {
             {state.notes.length === 0 ? (
               <div className="empty">还没有笔记，踩到坑就记一笔 📝（10 条解锁成就）</div>
             ) : (
-              [...state.notes].reverse().map((n) => (
+              [...state.notes].reverse().filter((n) => !noteSearch || n.text.toLowerCase().includes(noteSearch.toLowerCase())).map((n) => (
                 <div className="note" key={n.id}>
                   {editingId === n.id ? (
                     <>
@@ -725,6 +816,9 @@ export default function App() {
                 </div>
               ))
             )}
+            {noteSearch && state.notes.filter((n) => n.text.toLowerCase().includes(noteSearch.toLowerCase())).length === 0 && (
+              <div className="empty">没有匹配「{noteSearch}」的笔记 🔍</div>
+            )}
           </div>
         </div>
 
@@ -733,7 +827,7 @@ export default function App() {
             <h2>🗺️ 修行地图</h2>
             {PHASES.map((p, i) => {
               const total = p.to - p.from + 1;
-              const done = TASKS.filter((t) => t.d >= p.from && t.d <= p.to && state.doneTasks.includes(t.d)).length;
+              const done = track.tasks.filter((t) => t.d >= p.from && t.d <= p.to && tp.doneTasks.includes(t.d)).length;
               const pct = Math.round((done / total) * 100);
               return (
                 <details className="phase" key={i} open={i === 0}>
@@ -743,10 +837,10 @@ export default function App() {
                     <span className="pct">{done}/{total}</span>
                   </summary>
                   <div className="phase-body">
-                    {TASKS.filter((t) => t.d >= p.from && t.d <= p.to).map((t) => {
-                      const cleared = state.doneTasks.includes(t.d);
-                      const isCur = t.d === state.currentDay;
-                      const canReview = cleared || t.d < state.currentDay;
+                    {track.tasks.filter((t) => t.d >= p.from && t.d <= p.to).map((t) => {
+                      const cleared = tp.doneTasks.includes(t.d);
+                      const isCur = t.d === tp.currentDay;
+                      const canReview = cleared || t.d < tp.currentDay;
                       return (
                         <div
                           key={t.d}
@@ -767,26 +861,34 @@ export default function App() {
           </div>
 
           <div className="card">
-            <h2>🏆 成就徽章</h2>
+            <h2>🏆 成就徽章 <span className="small">{earnedBadges.length}/{BADGES.length} · 进度实时可见</span></h2>
             <div className="badges-grid">
               {BADGES.map((b) => {
                 const got = earnedBadges.some((e) => e.id === b.id);
+                const prog = b.progress ? b.progress(badgeStats) : null;
+                const pct = prog && prog[1] > 0 ? Math.round((prog[0] / prog[1]) * 100) : 0;
                 return (
                   <div className={"badge" + (got ? " got" : "")} key={b.id} title={b.desc}>
                     <div className="badge-icon">{got ? b.icon : "🔒"}</div>
                     <div className="badge-name">{b.name}</div>
                     <div className="badge-desc">{b.desc}</div>
+                    {!got && prog && (
+                      <div className="badge-prog">
+                        <div className="badge-prog-bar"><span style={{ width: pct + "%" }} /></div>
+                        <div className="badge-prog-num">{prog[0]}/{prog[1]}</div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {state.wrongBook.length > 0 && (
+          {tp.wrongBook.length > 0 && (
             <div className="card">
-              <h2>📕 错题本 <span className="small">{state.wrongBook.length} 题 · 点题重练</span></h2>
-              {[...state.wrongBook].reverse().slice(0, 8).map(([d, qi], i) => {
-                const quiz = QUIZZES[d]?.[qi];
+              <h2>📕 错题本 <span className="small">{tp.wrongBook.length} 题 · 点题重练</span></h2>
+              {[...tp.wrongBook].reverse().slice(0, 8).map(([d, qi], i) => {
+                const quiz = track.quizzes[d]?.[qi];
                 return quiz ? (
                   <div className="note wrong-note" key={i} onClick={() => setRetake({ day: d, qi })} title="点击重练此题">
                     <span className="note-text">Day {d} · {quiz.q}</span>
@@ -810,16 +912,16 @@ export default function App() {
             <div className="lib-list">
               {(() => {
                 const kw = resSearch.trim().toLowerCase();
-                const entries = Object.entries(RESOURCES).map(([d, rs]) => [Number(d), rs] as [number, typeof RESOURCES[number]]);
+                const entries = Object.entries(track.resources).map(([d, rs]) => [Number(d), rs] as [number, TrackResource[]]);
                 const filtered = kw
                   ? entries.filter(([, rs]) => rs.some((r) => r.name.toLowerCase().includes(kw)))
-                  : entries.filter(([d]) => d <= state.currentDay + 1); // 未搜索时只显示已解锁+明天
+                  : entries.filter(([d]) => d <= tp.currentDay + 1); // 未搜索时只显示已解锁+明天
                 if (filtered.length === 0) return <div className="empty">没有匹配的资料，换个关键词试试</div>;
                 return filtered.map(([d, rs]) => (
-                  <details key={d} className="lib-day" open={!!kw || d === state.currentDay}>
+                  <details key={d} className="lib-day" open={!!kw || d === tp.currentDay}>
                     <summary>
-                      Day {d} {state.doneTasks.includes(d) ? "✅" : d === state.currentDay ? "📍" : "🔒"}
-                      <span className="lib-day-title">{taskOf(d)?.t.slice(0, 16)}</span>
+                      Day {d} {tp.doneTasks.includes(d) ? "✅" : d === tp.currentDay ? "📍" : "🔒"}
+                      <span className="lib-day-title">{track.tasks.find(t => t.d === d)?.t.slice(0, 16)}</span>
                     </summary>
                     <div className="res-links" style={{ padding: "4px 10px 10px" }}>
                       {rs.map((r) => (
@@ -839,7 +941,7 @@ export default function App() {
           <div className="card">
             <h2>📊 学习数据</h2>
             <div className="stat-grid">
-              <div className="sg-item"><b>{state.doneTasks.length}</b><span>已通关</span></div>
+              <div className="sg-item"><b>{tp.doneTasks.length}</b><span>已通关</span></div>
               <div className="sg-item"><b>{Object.keys(exDone).length}</b><span>练过代码</span></div>
               <div className="sg-item"><b>{state.quizCorrect}/{state.quizCorrect + state.quizWrong}</b><span>答题正确率</span></div>
               <div className="sg-item"><b>{state.perfectQuizzes}</b><span>完美通关</span></div>
@@ -884,11 +986,11 @@ export default function App() {
       </div>
 
       {/* 历史回顾弹窗 */}
-      {historyDay !== null && <HistoryModal day={historyDay} onClose={() => setHistoryDay(null)} />}
+      {historyDay !== null && <HistoryModal day={historyDay} track={track} onClose={() => setHistoryDay(null)} />}
 
       {/* 错题重练弹窗 */}
       {retake && (() => {
-        const quiz = QUIZZES[retake.day]?.[retake.qi];
+        const quiz = track.quizzes[retake.day]?.[retake.qi];
         if (!quiz) return null;
         return (
           <RetakeModal
