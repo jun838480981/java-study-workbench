@@ -7,9 +7,10 @@ import { LXF_CONTENT } from "./lxfContent";
 import LxfReader from "./LxfReader";
 import type { Quiz } from "./data";
 import CodeEditor from "./CodeEditor";
+import ResReader from "./ResReader";
 
 // 历史关卡回看弹窗（按职业取内容）
-export function HistoryModal({ day, track, onClose }: { day: number; track: Track; onClose: () => void }) {
+export function HistoryModal({ day, track, onClose, openReader }: { day: number; track: Track; onClose: () => void; openReader: (r: { url: string; title: string }) => void }) {
   const task = track.tasks.find((t) => t.d === day);
   const quiz = track.quizzes[day] ?? [];
   const ex = track.exercises[day];
@@ -60,10 +61,10 @@ export function HistoryModal({ day, track, onClose }: { day: number; track: Trac
           {tab === "res" && track.resources[day] && (
             <div className="res-links">
               {track.resources[day].map((r) => (
-                <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer" className="res-link">
+                <button key={r.url} className="res-link" onClick={() => openReader({ url: r.url, title: r.name })}>
                   <span className={"res-type t-" + r.type}>{RESOURCE_TYPE_LABEL[r.type]}</span>
-                  {r.name} ↗
-                </a>
+                  {r.name} ⧉
+                </button>
               ))}
             </div>
           )}
@@ -245,6 +246,7 @@ export default function App() {
   });
   // 新功能状态
   const [retake, setRetake] = useState<{ day: number; qi: number } | null>(null);
+  const [reader, setReader] = useState<{ url: string; title: string } | null>(null); // 站内资料阅读器
   const [noteSearch, setNoteSearch] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem(KEY + ".theme") as "dark" | "light") || "dark");
 
@@ -689,10 +691,10 @@ export default function App() {
                   <div className="lesson-code-label">🔗 配套资料（点击跳转详细学习）</div>
                   <div className="res-links">
                     {track.resources[tp.currentDay].map((r) => (
-                      <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer" className="res-link">
+                      <button key={r.url} className="res-link" onClick={() => setReader({ url: r.url, title: r.name })}>
                         <span className={"res-type t-" + r.type}>{RESOURCE_TYPE_LABEL[r.type]}</span>
-                        {r.name} ↗
-                      </a>
+                        {r.name} ⧉
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -936,10 +938,10 @@ export default function App() {
                     </summary>
                     <div className="res-links" style={{ padding: "4px 10px 10px" }}>
                       {rs.map((r) => (
-                        <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer" className="res-link">
+                        <button key={r.url} className="res-link" onClick={() => setReader({ url: r.url, title: r.name })}>
                           <span className={"res-type t-" + r.type}>{RESOURCE_TYPE_LABEL[r.type]}</span>
-                          {r.name} ↗
-                        </a>
+                          {r.name} ⧉
+                        </button>
                       ))}
                     </div>
                   </details>
@@ -997,7 +999,7 @@ export default function App() {
       </div>
 
       {/* 历史回顾弹窗 */}
-      {historyDay !== null && <HistoryModal day={historyDay} track={track} onClose={() => setHistoryDay(null)} />}
+      {historyDay !== null && <HistoryModal day={historyDay} track={track} onClose={() => setHistoryDay(null)} openReader={setReader} />}
 
       {/* 错题重练弹窗 */}
       {retake && (() => {
@@ -1015,6 +1017,9 @@ export default function App() {
           />
         );
       })()}
+
+      {/* 站内资料阅读器 */}
+      {reader && <ResReader url={reader.url} title={reader.title} onClose={() => setReader(null)} />}
 
       {/* 升级弹窗 */}
       {levelUp && (
