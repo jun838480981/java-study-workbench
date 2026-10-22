@@ -4,10 +4,28 @@
   --panel2: #202735;
   --line: #2c3547;
   --text: #e8eaf0;
+  --text2: #c7d2de;
   --muted: #8b94a7;
   --coffee: #c9974f;
   --green: #6fcf97;
   --red: #eb5757;
+  --scroll-thumb: linear-gradient(180deg, #33445c, #2a3850);
+  --scroll-thumb-hover: linear-gradient(180deg, #4a6fa5, #3a5580);
+}
+/* 浅色主题：整站变量翻转，组件无需改动 */
+html.light-theme {
+  --bg: #f4f1ea;
+  --panel: #ffffff;
+  --panel2: #f0ece2;
+  --line: #ddd5c4;
+  --text: #33302a;
+  --text2: #5a5348;
+  --muted: #8d8676;
+  --coffee: #a5713a;
+  --green: #3f9d6a;
+  --red: #d64545;
+  --scroll-thumb: linear-gradient(180deg, #d8cfbc, #cfc5af);
+  --scroll-thumb-hover: linear-gradient(180deg, #b8ac92, #a89b7e);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -17,15 +35,16 @@ body {
 
 /* 全局滚动条 */
 * { scrollbar-width: thin; scrollbar-color: #3a4a5f transparent; }
+html.light-theme * { scrollbar-color: #cfc5af transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #33445c, #2a3850);
+  background: var(--scroll-thumb);
   border-radius: 8px;
   border: 2px solid var(--bg);
   transition: background 0.2s;
 }
-::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #4a6fa5, #3a5580); }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 ::-webkit-scrollbar-corner { background: transparent; }
 .wrap { max-width: 1440px; margin: 0 auto; padding: 24px 32px; }
 h1 { font-size: 22px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -217,8 +236,9 @@ details.phase summary:hover { background: var(--panel2); }
 .res-type.t-repo { background: rgba(200,120,200,.15); color: #c88ad4; }
 
 /* 资料库 */
-.lib-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.lib-day { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.lib-list { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; overscroll-behavior: contain; }
+.lib-day { border: 1px solid var(--line); border-radius: 8px; overflow: visible; flex-shrink: 0; }
+.lib-day[open] { overflow: visible; }
 .lib-day summary { cursor: pointer; padding: 8px 10px; font-size: 12.5px; font-weight: 600; list-style: none; display: flex; gap: 6px; align-items: baseline; }
 .lib-day summary::-webkit-details-marker { display: none; }
 .lib-day summary:hover { background: var(--panel2); }
@@ -293,6 +313,37 @@ details.phase summary:hover { background: var(--panel2); }
 .modal h2 { color: var(--coffee); margin: 10px 0 6px; }
 .levelup-title { font-size: 22px; font-weight: 700; margin: 8px 0; }
 .levelup-desc { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+
+/* 职业大厅 */
+.hall { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 6px; }
+.hall-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; text-align: left; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; color: var(--text);
+  transition: 0.15s; position: relative;
+}
+.hall-card:hover { border-color: var(--coffee); transform: translateY(-2px); }
+.hall-card.active { border-color: var(--coffee); background: rgba(201,151,79,.08); box-shadow: 0 0 12px rgba(201,151,79,.15); }
+.hall-icon { font-size: 20px; }
+.hall-name { font-size: 13px; font-weight: 700; }
+.hall-prog { font-size: 11px; color: var(--muted); }
+.hall-bar { height: 4px; background: var(--panel2); border-radius: 2px; overflow: hidden; display: block; }
+.hall-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--coffee), #e0b877); border-radius: 2px; }
+
+/* 顶部头部行 + 主题切换 */
+.head-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.theme-toggle {
+  padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text2, #c7d2de);
+  transition: 0.15s;
+}
+.theme-toggle:hover { border-color: var(--coffee); color: var(--coffee); }
+
+/* 徽章进度条 */
+.badge-prog { margin-top: 8px; }
+.badge-prog-bar { height: 5px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+.badge-prog-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--coffee), #e0b877); border-radius: 3px; transition: width .5s; }
+.badge-prog-num { font-size: 10.5px; color: var(--muted); margin-top: 3px; text-align: center; }
+.note-search-row { margin-bottom: 8px; }
 
 /* 每日挑战条 */
 .challenge-bar {
